@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [thumbv6m-none-eabi]
+        target: [riscv32i-unknown-none-elf]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,13 +39,7 @@ jobs:
       matrix:
         version: ["1.87", "stable"] # Check MSRV and stable.
         target: 
-        - "thumbv8m.main-none-eabihf"
-        - "thumbv6m-none-eabi"
-        - "thumbv7em-none-eabi"
-        - "thumbv7em-none-eabihf"
-        - "thumbv7m-none-eabi"
-        - "thumbv8m.base-none-eabi"
-        - "thumbv8m.main-none-eabi"
+        - "riscv32i-unknown-none-elf"
     name: cargo check +${{ matrix.version }} ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4

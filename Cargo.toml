@@ -1,28 +1,22 @@
 [package]
-name = "cortex-m-stack"
+name = "riscv-stack"
 version = "0.2.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.87"
 
-authors = ["Wouter Geraedts <git@woutergeraedts.nl>"]
+authors = ["Kurtis Dinelle <kurtisdinelle@gmail.com>", "Wouter Geraedts <git@woutergeraedts.nl>"]
 categories = ["embedded", "hardware-support", "no-std::no-alloc", "no-std"]
-keywords = ["arm", "cortex-m", "stack"]
-description = "Stack usage tools for Cortex-M processors"
+keywords = ["riscv", "stack"]
+description = "Stack usage tools for RISCV processors"
 
-documentation = "https://docs.rs/cortex-m-stack"
-repository = "https://github.com/Wassasin/cortex-m-stack"
+documentation = "https://docs.rs/riscv-stack"
+repository = "https://github.com/kurtjd/riscv-stack"
 readme = "README.md"
 
 [dependencies]
 
 [package.metadata.docs.rs]
 targets = [
-    "thumbv8m.main-none-eabihf",
-    "thumbv6m-none-eabi",
-    "thumbv7em-none-eabi",
-    "thumbv7em-none-eabihf",
-    "thumbv7m-none-eabi",
-    "thumbv8m.base-none-eabi",
-    "thumbv8m.main-none-eabi"
+    "riscv32i-unknown-none-elf"
 ]

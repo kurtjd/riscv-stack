@@ -35,7 +35,7 @@ pub const fn stack_rev() -> Range<*mut u32> {
 #[inline]
 pub fn current_stack_ptr() -> *mut u32 {
     let res;
-    unsafe { asm!("mov {}, sp", out(reg) res) };
+    unsafe { asm!("mv {}, sp", out(reg) res) };
     res
 }
 
@@ -71,7 +71,7 @@ pub fn current_stack_fraction() -> f32 {
 ///
 /// **Note:** this can take some time, and an ISR could possibly interrupt this process,
 /// dirtying up your freshly painted stack.
-/// If you wish to prevent this, run this inside a critical section using `cortex_m::interrupt::free`.
+/// If you wish to prevent this, run this inside a critical section using `riscv::interrupt::free`.
 ///
 /// Runs in *O(n)* where *n* is the size of the stack.
 /// This function is inefficient in the sense that it repaints the entire stack,
@@ -81,10 +81,10 @@ pub fn repaint_stack() {
     unsafe {
         asm!(
             "0:",
-            "cmp sp, {ptr}",
-            "bls 1f",
-            "stmia {ptr}!, {{{paint}}}",
-            "b 0b",
+            "bgeu {ptr}, sp, 1f",
+            "sw {paint}, 0({ptr})",
+            "addi {ptr}, {ptr}, 4",
+            "j 0b",
             "1:",
             ptr = inout(reg) stack().end => _,
             paint = in(reg) STACK_PAINT_VALUE,
@@ -118,13 +118,11 @@ pub fn stack_painted() -> u32 {
     unsafe {
         asm!(
             "0:",
-            "cmp sp, {ptr}",
-            "bls 1f",
-            "ldr {value}, [{ptr}]",
-            "cmp {value}, {paint}",
-            "bne 1f",
-            "adds {ptr}, #4",
-            "b 0b",
+            "bgeu {ptr}, sp, 1f",
+            "lw {value}, 0({ptr})",
+            "bne {value}, {paint}, 1f",
+            "addi {ptr}, {ptr}, 4",
+            "j 0b",
             "1:",
             ptr = inout(reg) stack().end => res,
             value = out(reg) _,

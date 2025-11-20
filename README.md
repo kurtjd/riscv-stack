@@ -1,8 +1,12 @@
-# cortex-m-stack
-Methods for Cortex-M processors to determine stack size and how much of the stack has been or is being used.
+# riscv-stack
+Methods for RISCV processors to determine stack size and how much of the stack has been or is being used.
+
+This is a fork of [cortex-m-stack](https://github.com/OpenDevicePartnership/cortex-m-stack) but ported
+to RISCV assembly.
 
 **Warning**: this crate depends on the `_stack_start` and `_stack_end` symbols being set correctly.
-The `cortex-m` crates achieve this with their linker scripts, but the `flip-link` linker does not until [PR #126](https://github.com/knurling-rs/flip-link/pull/126) has landed.
+Currently, the linker script provided by `riscv-rt` does not export `_stack_end`, but I will open a PR
+for my fix soon.
 
 ## Immediate stack usage
 Use [current_stack_in_use] or [current_stack_free] to keep track of the memory usage at run-time.

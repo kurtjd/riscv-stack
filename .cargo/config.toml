@@ -1,2 +1,2 @@
 [build]
-target = "thumbv6m-none-eabi" # Cortex-M0+
+target = "riscv32i-unknown-none-elf"
