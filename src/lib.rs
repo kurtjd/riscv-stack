@@ -11,6 +11,9 @@ pub const STACK_PAINT_VALUE: u32 = 0xCCCC_CCCC;
 /// Note: the stack is defined in reverse, as it runs from 'start' to 'end' downwards.
 /// Hence this range is technically empty because `start >= end`.
 ///
+/// *Important*: `end` represents one past the last value in the stack belonging to current hart,
+/// so do not attempt to write to it, as you'd overwrite the start of stack of another hart.
+///
 /// If you want to use this range to do range-like things, use [stack_rev] instead.
 #[inline]
 pub fn stack() -> Range<*mut u32> {
@@ -59,10 +62,13 @@ pub fn stack() -> Range<*mut u32> {
 /// The [Range] currently in use for the current hart's stack,
 /// defined in reverse such that [Range] operations are viable.
 ///
-/// Hence the `end` of this [Range] is where the current hart's stack starts.
+/// Hence the `end` of this [Range] is one past where the current hart's stack starts,
+/// so it is important not to write to it, otherwise the end of another hart's stack may be overwritten.
 #[inline]
 pub fn stack_rev() -> Range<*mut u32> {
-    stack().end..stack().start
+    // SAFETY: Range states start <= x < end, so when reversing, we add 1 to each bound
+    // to keep meaning
+    unsafe { stack().end.add(1)..stack().start.add(1) }
 }
 
 /// Convenience function to fetch the current hart's stack pointer.
@@ -125,7 +131,7 @@ pub fn repaint_stack() {
             "addi {ptr}, {ptr}, 4",
             "j 0b",
             "1:",
-            ptr = inout(reg) stack().end => _,
+            ptr = inout(reg) stack().end.add(1) => _,
             paint = in(reg) STACK_PAINT_VALUE,
         )
     };
@@ -163,7 +169,7 @@ pub fn stack_painted() -> usize {
             "addi {ptr}, {ptr}, 4",
             "j 0b",
             "1:",
-            ptr = inout(reg) stack().end => res,
+            ptr = inout(reg) stack().end.add(1) => res,
             value = out(reg) _,
             paint = in(reg) STACK_PAINT_VALUE,
             options(nostack, readonly)
@@ -193,6 +199,7 @@ pub unsafe fn stack_painted_binary() -> usize {
     // SAFETY: we should be able to read anywhere on the stack using this,
     // but this is considered UB because we are aliasing memory out of nowhere.
     // Will probably still work though.
-    let slice = unsafe { &*core::ptr::slice_from_raw_parts(stack().end, current_stack_free() / 4) };
+    let slice =
+        unsafe { &*core::ptr::slice_from_raw_parts(stack().end.add(1), current_stack_free() / 4) };
     slice.partition_point(|&word| word == STACK_PAINT_VALUE) * size_of::<usize>()
 }
