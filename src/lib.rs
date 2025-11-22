@@ -6,68 +6,106 @@ use core::{arch::asm, mem::size_of, ops::Range};
 /// The value used to paint the stack.
 pub const STACK_PAINT_VALUE: u32 = 0xCCCC_CCCC;
 
-/// The [Range] currently in use for the stack.
+/// The [Range] currently in use for the current hart's stack.
 ///
 /// Note: the stack is defined in reverse, as it runs from 'start' to 'end' downwards.
 /// Hence this range is technically empty because `start >= end`.
 ///
 /// If you want to use this range to do range-like things, use [stack_rev] instead.
 #[inline]
-pub const fn stack() -> Range<*mut u32> {
+pub fn stack() -> Range<*mut u32> {
     unsafe extern "C" {
         static mut _stack_start: u32;
-        static mut _stack_end: u32;
+        static _hart_stack_size: usize;
     }
 
-    core::ptr::addr_of_mut!(_stack_start)..core::ptr::addr_of_mut!(_stack_end)
+    // Current hart's ID
+    //let hartid = riscv::register::mhartid::read();
+    let hartid: usize;
+    unsafe { asm!("csrr {}, mhartid", out(reg) hartid) };
+
+    // The _hart_stack_size symbol's value, which is the size obviously,
+    // is represented by the address of the symbol.
+    //
+    // So we have to first make a fake pointer then treat it as an actual usize.
+    let stksz = &raw const _hart_stack_size as usize;
+
+    // Each hart has equal (_hart_stack_size) stack sizes.
+    //
+    // Thus the Nth hart's stack can be found by offsetting from the very top of stack
+    // down to _hart_stack_size * hartid.
+    //
+    // The below safety requirements would only end up violated if linker script is incorrect.
+    // The linker script from `riscv-rt` should satisfy these requirements.
+    //
+    // SAFETY: Linker script must ensure that `_stack_start - (_hart_stack_size * hartid)`
+    // is always within the available stack space.
+    let start = unsafe { (&raw mut _stack_start).byte_sub(hartid * stksz) };
+    // SAFETY: Linker script must also ensure that the above address, offset downward by another
+    // _hart_stack_size, is always within the available stack space and does not interfere
+    // with another hart's stack.
+    let end = unsafe { start.byte_sub(stksz) };
+
+    // But we want to ensure boundaries are 4 byte aligned before dereferencing them.
+    //
+    // So different harts will actually have slightly different stack sizes depending
+    // on if _hart_stack_size is divisble by 4 or not.
+    let start = start.map_addr(|p| p & !0b11);
+    let end = end.map_addr(|p| p & !0b11);
+
+    start..end
 }
 
-/// The [Range] currently in use for the stack,
+/// The [Range] currently in use for the current hart's stack,
 /// defined in reverse such that [Range] operations are viable.
 ///
-/// Hence the `end` of this [Range] is where the stack starts.
+/// Hence the `end` of this [Range] is where the current hart's stack starts.
 #[inline]
-pub const fn stack_rev() -> Range<*mut u32> {
+pub fn stack_rev() -> Range<*mut u32> {
     stack().end..stack().start
 }
 
-/// Convenience function to fetch the current stack pointer.
+/// Convenience function to fetch the current hart's stack pointer.
 #[inline]
 pub fn current_stack_ptr() -> *mut u32 {
     let res;
+    // SAFETY: Just reading the stack pointer nothing crazy
     unsafe { asm!("mv {}, sp", out(reg) res) };
     res
 }
 
-/// The number of bytes that are reserved for the stack at compile time.
+/// The number of bytes that are reserved for the current hart's stack at compile time.
+///
+/// Note: Although all harts have equal stack space reserved, their effective stack space
+/// may differ slightly due to alignment issues.
 #[inline]
-pub const fn stack_size() -> u32 {
-    // Safety: start >= end. If this is not the case your linker did something wrong.
-    (unsafe { stack().start.byte_offset_from_unsigned(stack().end) }) as u32
+pub fn stack_size() -> usize {
+    // SAFETY: start >= end. If this is not the case your linker did something wrong.
+    unsafe { stack().start.byte_offset_from_unsigned(stack().end) }
 }
 
-/// The number of bytes of the stack that are currently in use.
+/// The number of bytes of the current hart's stack that are currently in use.
 #[inline]
-pub fn current_stack_in_use() -> u32 {
-    // Safety: start >= end. If this is not the case your linker did something wrong.
-    (unsafe { stack().start.byte_offset_from_unsigned(current_stack_ptr()) }) as u32
+pub fn current_stack_in_use() -> usize {
+    // SAFETY: start >= end. If this is not the case your linker did something wrong.
+    unsafe { stack().start.byte_offset_from_unsigned(current_stack_ptr()) }
 }
 
-/// The number of bytes of the stack that are currently free.
+/// The number of bytes of the current hart's stack that are currently free.
 ///
 /// If the stack has overflowed, this function returns 0.
 #[inline]
-pub fn current_stack_free() -> u32 {
+pub fn current_stack_free() -> usize {
     stack_size().saturating_sub(current_stack_in_use())
 }
 
-/// What fraction of the stack is currently in use.
+/// What fraction of the current hart's stack is currently in use.
 #[inline]
 pub fn current_stack_fraction() -> f32 {
     current_stack_in_use() as f32 / stack_size() as f32
 }
 
-/// Paint the part of the stack that is currently not in use.
+/// Paint the part of the current hart's stack that is currently not in use.
 ///
 /// **Note:** this can take some time, and an ISR could possibly interrupt this process,
 /// dirtying up your freshly painted stack.
@@ -78,6 +116,7 @@ pub fn current_stack_fraction() -> f32 {
 /// even the parts that still have the [STACK_PAINT_VALUE].
 #[inline(never)]
 pub fn repaint_stack() {
+    // SAFETY: `stack()` has ensured we are staying within the bounds of the current hart's stack
     unsafe {
         asm!(
             "0:",
@@ -92,7 +131,7 @@ pub fn repaint_stack() {
     };
 }
 
-/// Finds the number of bytes that have not been overwritten on the stack since the last repaint.
+/// Finds the number of bytes that have not been overwritten on the current hart's stack since the last repaint.
 ///
 /// In other words: shows the worst case free stack space since [repaint_stack] was last called.
 ///
@@ -104,7 +143,7 @@ pub fn repaint_stack() {
 ///
 /// Runs in *O(n)* where *n* is the size of the stack.
 #[inline(never)]
-pub fn stack_painted() -> u32 {
+pub fn stack_painted() -> usize {
     let res: *const u32;
     // SAFETY: As per the [rust reference], inline asm is allowed to look below the
     // stack pointer. We read the values between the end of stack and the current stack
@@ -130,11 +169,11 @@ pub fn stack_painted() -> u32 {
             options(nostack, readonly)
         )
     };
-    // Safety: res >= stack.end() because we start at stack.end()
-    (unsafe { res.byte_offset_from_unsigned(stack().end) }) as u32
+    // SAFETY: res >= stack.end() because we start at stack.end()
+    unsafe { res.byte_offset_from_unsigned(stack().end) }
 }
 
-/// Finds the number of bytes that have not been overwritten on the stack since the last repaint using binary search.
+/// Finds the number of bytes that have not been overwritten on the current hart's stack since the last repaint using binary search.
 ///
 /// In other words: shows the worst case free stack space since [repaint_stack] was last called.
 ///
@@ -149,12 +188,10 @@ pub fn stack_painted() -> u32 {
 /// # Safety
 /// This function aliases the inactive stack, which is considered to be Undefined Behaviour.
 /// Do not use if you care about such things.
-pub unsafe fn stack_painted_binary() -> u32 {
+pub unsafe fn stack_painted_binary() -> usize {
     // Safety: we should be able to read anywhere on the stack using this,
     // but this is considered UB because we are aliasing memory out of nowhere.
     // Will probably still work though.
-    let slice = unsafe {
-        &*core::ptr::slice_from_raw_parts(stack().end, current_stack_free() as usize / 4)
-    };
-    (slice.partition_point(|&word| word == STACK_PAINT_VALUE) * size_of::<u32>()) as u32
+    let slice = unsafe { &*core::ptr::slice_from_raw_parts(stack().end, current_stack_free() / 4) };
+    slice.partition_point(|&word| word == STACK_PAINT_VALUE) * size_of::<usize>()
 }
