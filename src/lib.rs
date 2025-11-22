@@ -20,8 +20,8 @@ pub fn stack() -> Range<*mut u32> {
     }
 
     // Current hart's ID
-    //let hartid = riscv::register::mhartid::read();
     let hartid: usize;
+    // SAFETY: We are just reading from a CSR
     unsafe { asm!("csrr {}, mhartid", out(reg) hartid) };
 
     // The _hart_stack_size symbol's value, which is the size obviously,
@@ -186,10 +186,11 @@ pub fn stack_painted() -> usize {
 /// **Danger:** if the current (active) stack contains the [STACK_PAINT_VALUE] this computation may be very incorrect.
 ///
 /// # Safety
+///
 /// This function aliases the inactive stack, which is considered to be Undefined Behaviour.
 /// Do not use if you care about such things.
 pub unsafe fn stack_painted_binary() -> usize {
-    // Safety: we should be able to read anywhere on the stack using this,
+    // SAFETY: we should be able to read anywhere on the stack using this,
     // but this is considered UB because we are aliasing memory out of nowhere.
     // Will probably still work though.
     let slice = unsafe { &*core::ptr::slice_from_raw_parts(stack().end, current_stack_free() / 4) };
